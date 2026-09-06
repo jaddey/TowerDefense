@@ -1,0 +1,19 @@
+# Unity generated files
+Library/
+Temp/
+Obj/
+Logs/
+Build/
+*.csproj
+*.unityproj
+*.sln
+*.user
+*.userprefs
+*.pidb
+*.booproj
+*.asset
+*.meta
+.vs/
+.vscode/
+*.backup
+*.tmp
