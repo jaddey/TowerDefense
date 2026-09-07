@@ -1,78 +1,71 @@
-using System.Collections;
-using System.Collections.Generic;
 using UnityEngine;
+using System.Collections.Generic;
+using System;
 
 public class NewEnemySpawner : MonoBehaviour
 {
-    // Определение переменных для области появления, задержки между спауном врагов, списка волн врагов
-    public Vector3 spawnArea;
-    public float spawnDelay = 0.5f;
-    public EnemyWaveData waveList;
-    
-    // Счетчики количества созданных и необходимых к созданию врагов
-    private int enemiesSpawned = 0;
-    private int totalEnemiesToSpawn = 0;
+    // Префаб врага
+    public GameObject enemyPrefab;
 
-    // Вызывается при запуске скрипта и устанавливает полное количество врагов для этой волны
-    private void Start()
-    {
-        SetTotalEnemies();
-    }
+    // Массив рядов waypoints (отображается в инспекторе!)
+    public WaypointRow[] waypointRows;
 
-    // Вызывается каждый кадр.
-    private void Update()
-    {
-        
-    }
+    // Финальная цель (база игрока)
+    public Transform target;
 
-    // Рисует границы области спауна для врагов
-    private void OnDrawGizmosSelected()
-    {
-        Gizmos.color = Color.yellow;
-        Gizmos.DrawWireCube(transform.position, spawnArea * 2f);
-    }
+    // Настройки спавна
+    public float spawnInterval = 2f;
+    public int maxEnemies = 20;
 
-    // Устанавливает общее количество врагов для этой волны и использует InvokeRepeating для повторного вызова метода SpawnEnemy() с интервалом времени spawnDelay
-    public void SetTotalEnemies()
+    private int currentEnemies = 0;
+    private float spawnTimer = 0f;
+
+    void Update()
     {
-        totalEnemiesToSpawn = waveList.enemies.Count;
-        if (totalEnemiesToSpawn == 0)
+        spawnTimer += Time.deltaTime;
+        if (spawnTimer >= spawnInterval && currentEnemies < maxEnemies)
         {
-            return;
+            SpawnEnemy();
+            spawnTimer = 0f;
         }
-        InvokeRepeating("SpawnEnemy", spawnDelay, spawnDelay);
     }
 
-    // Создает врага на случайной позиции внутри зоны появления врагов, если уже не создано всех необходимых врагов
-    private void SpawnEnemy()
+    void SpawnEnemy()
     {
-        if (enemiesSpawned >= totalEnemiesToSpawn) // Проверьте, все ли враги больше не нужны, чтобы отменить InvokeRepeating() и вернуться из метода SpawnEnemy()
+        if (enemyPrefab == null) return;
+
+        // Создаём нового врага
+        GameObject newEnemy = Instantiate(enemyPrefab, transform.position, Quaternion.identity);
+
+        // Получаем компонент EnemyScript
+        EnemyScript enemyScript = newEnemy.GetComponent<EnemyScript>();
+
+        if (enemyScript != null)
         {
-            CancelInvoke("SpawnEnemy");
-            return; 
+            // Преобразуем WaypointRow[] в List<List<Transform>> для EnemyScript
+            List<List<Transform>> rowsAsLists = new List<List<Transform>>();
+            foreach (WaypointRow row in waypointRows)
+            {
+                rowsAsLists.Add(new List<Transform>(row.waypoints));
+            }
+
+            // Передаём waypoints и цель врагу
+            enemyScript.SetWaypoints(rowsAsLists, target);
         }
 
-        // создаем врага
-        GameObject enemy = Instantiate(waveList.enemies[enemiesSpawned].EnemyPrefab, GetRandomSpawnPosition(), Quaternion.identity);
-
-        // Получает доступ к скрипту врага
-        EnemyScript enemyScript = enemy.GetComponent<EnemyScript>();
-
-        // Устанавливает данные о враге через метод SetData() в скрипте врага.
-        EnemyData enemyData = waveList.enemies[enemiesSpawned];
-        enemyScript.SetData(ref enemyData);
-
-        // увеличиваем счетчик созданных врагов
-        enemiesSpawned++;
+        currentEnemies++;
     }
 
-    // Возвращает векторную координату в пределах области спауна для врагов
-    private Vector3 GetRandomSpawnPosition()
+    // Метод для уменьшения счетчика врагов
+    public void OnEnemyDied()
     {
-        Vector3 randomPos = new Vector3(Random.Range(-spawnArea.x, spawnArea.x), transform.position.y, Random.Range(-spawnArea.z, spawnArea.z));
-        return transform.TransformPoint(randomPos);
+        currentEnemies--;
     }
 }
 
 
-
+[Serializable] // Важно! Чтобы Unity мог отображать этот класс в инспекторе
+public class WaypointRow
+{
+    public Transform[] waypoints; // Массив точек для этого ряда
+}

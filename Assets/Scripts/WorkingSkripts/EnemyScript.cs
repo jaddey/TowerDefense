@@ -1,94 +1,147 @@
-using System.Collections;
-using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.AI;
+using System.Collections.Generic;
 
 public class EnemyScript : MonoBehaviour
 {
-    public Transform target;
+    // Настройки врага
     public int health = 100;
-    public float lifeTime = 5.0f;
-    public float noiseFrequency = 0.1f; // частота шума
-    public float noiseAmplitude = 1f; // амплитуда шума
-    public float minSpeed = 1f; // минимальная скорость
-    public float maxSpeed = 5f; // максимальная скорость
+    public float minSpeed = 2f;
+    public float maxSpeed = 5f;
+    public float waypointReachRadius = 3f; // Радиус срабатывания waypoint
+
+    // Урон по базе
+    public int damageToBase = 10; // Урон, который наносит враг при достижении цели
+
+    // Выпадение монет
     public GameObject coinPrefab;
     [Range(0, 100)]
-    public float coinDropChance = 50f; // вероятность выпадения монеты в процентах
-    private float speed;
-    NavMeshAgent agent;
-    private bool isActive = false;
+    public float coinDropChance = 50f; // Вероятность выпадения монеты (%)
+
+    // Waypoints и цель
+    private List<List<Transform>> waypointRows;
+    private Transform target;
+    private NavMeshAgent agent;
+    private int currentRowIndex = 0;
+    private int currentWaypointIndex = 0;
+    private bool hasDealtDamage = false; // Флаг, чтобы наносить урон только один раз
 
     void Start()
     {
-        /*target = GameObject.FindWithTag("Target").transform;
         agent = GetComponent<NavMeshAgent>();
-        DestroyAfterTime();
-        speed = Random.Range(minSpeed, maxSpeed); // задаем случайную скорость в диапазоне между minSpeed и maxSpeed
-        agent.speed = speed; // устанавливаем скорость для NavMeshAgent*/
+        agent.speed = Random.Range(minSpeed, maxSpeed);
+        agent.stoppingDistance = waypointReachRadius;
+        SetNextWaypoint();
     }
 
     void Update()
     {
-        if(!isActive)
+        // Проверяем, дошли ли до текущей цели
+        if (agent.remainingDistance <= agent.stoppingDistance && !agent.pathPending)
         {
+            // Если цель — конечная (target), то наносим урон и взрываемся
+            if (currentRowIndex >= waypointRows.Count && !hasDealtDamage)
+            {
+                DealDamageToBase();
+                hasDealtDamage = true;
+                Die();
+            }
+            else
+            {
+                SetNextWaypoint();
+            }
+        }
+    }
+
+    // Установка waypoints и цели (вызывается из NewEnemySpawner)
+    public void SetWaypoints(List<List<Transform>> rows, Transform finalTarget)
+    {
+        waypointRows = rows;
+        target = finalTarget;
+    }
+
+    // Установка следующей цели движения
+    void SetNextWaypoint()
+    {
+        // Если рядов нет или мы уже прошли все ряды — идем к цели
+        if (waypointRows == null || waypointRows.Count == 0 || currentRowIndex >= waypointRows.Count)
+        {
+            agent.SetDestination(target.position);
             return;
         }
 
-        // Генерируем случайное направление на основе карты шума
-        Vector3 noiseDirection = new Vector3(
-            Mathf.PerlinNoise(Time.time * noiseFrequency, 0) * noiseAmplitude * 2 - noiseAmplitude,
+        // Если текущий ряд — последний, идем к цели
+        if (currentRowIndex == waypointRows.Count - 1)
+        {
+            agent.SetDestination(target.position);
+            currentRowIndex++;
+            return;
+        }
+
+        // Переходим к следующему ряду
+        currentRowIndex++;
+        currentWaypointIndex = Random.Range(0, waypointRows[currentRowIndex].Count);
+
+        // Добавляем случайное смещение от waypoint
+        Vector3 randomOffset = new Vector3(
+            Random.Range(-1.5f, 1.5f),
             0,
-            Mathf.PerlinNoise(0, Time.time * noiseFrequency) * noiseAmplitude * 2 - noiseAmplitude
+            Random.Range(-1.5f, 1.5f)
         );
 
-        // Нормализуем направление и устанавливаем его в качестве пункта назначения для NavMeshAgent
-        agent.destination = target.position + noiseDirection.normalized;
-
-        // Обновляем позицию агента вручную
-        agent.nextPosition = transform.position;
+        // Проверяем, что новая позиция находится на NavMesh
+        NavMeshHit hit;
+        Transform targetWaypoint = waypointRows[currentRowIndex][currentWaypointIndex];
+        if (NavMesh.SamplePosition(targetWaypoint.position + randomOffset, out hit, 2f, NavMesh.AllAreas))
+        {
+            agent.SetDestination(hit.position);
+        }
+        else
+        {
+            agent.SetDestination(targetWaypoint.position);
+        }
     }
 
+    // Нанесение урона по базе (использует твой Base.cs)
+    void DealDamageToBase()
+    {
+        Base baseComponent = target.GetComponent<Base>();
+        if (baseComponent != null)
+        {
+            baseComponent.TakeDamage(damageToBase);
+        }
+        else
+        {
+            Debug.LogWarning("Base component not found on target!");
+        }
+    }
+
+    // Получение урона
     public void TakeDamage(int damage)
     {
         health -= damage;
-
         if (health <= 0)
         {
             Die();
         }
     }
 
+    // Смерть врага (с выпадением монет)
     void Die()
     {
-        if (Random.Range(0f, 100f) < coinDropChance)
+        // Выпадение монеты с заданной вероятностью
+        if (coinPrefab != null && Random.Range(0f, 100f) < coinDropChance)
         {
             Instantiate(coinPrefab, transform.position, Quaternion.identity);
         }
 
-        // уничтожаем объект
+        // Уведомляем спавнер о смерти
+        NewEnemySpawner spawner = FindObjectOfType<NewEnemySpawner>();
+        if (spawner != null)
+        {
+            spawner.OnEnemyDied();
+        }
+
         Destroy(gameObject);
-    }
-
-    void DestroyAfterTime()
-    {
-        // уничтожаем объект
-        Destroy(gameObject, lifeTime);
-    }
-
-    public void SetData(ref EnemyData data)
-    {
-        health = data.Health;
-        lifeTime = data.LifeTime;
-        Starter();
-    }
-    public void Starter()
-    {
-        target = GameObject.FindWithTag("Target").transform;
-        agent = GetComponent<NavMeshAgent>();
-        DestroyAfterTime();
-        speed = Random.Range(minSpeed, maxSpeed); // задаем случайную скорость в диапазоне между minSpeed и maxSpeed
-        agent.speed = speed; // устанавливаем скорость для NavMeshAgent
-        isActive = true;
     }
 }
